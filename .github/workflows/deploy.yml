@@ -1,0 +1,56 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPO: 865526620221.dkr.ecr.us-east-1.amazonaws.com/devops-pipeline-app
+  INSTANCE_ID: i-0a751aa20bfc72d9f
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::865526620221:role/devops-pipeline-github-actions
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        run: |
+          aws ecr get-login-password --region $AWS_REGION \
+            | docker login --username AWS --password-stdin 865526620221.dkr.ecr.us-east-1.amazonaws.com
+
+      - name: Build and push image
+        run: |
+          TAG=${GITHUB_SHA::7}
+          docker build -t $ECR_REPO:$TAG -t $ECR_REPO:latest ./app
+          docker push $ECR_REPO:$TAG
+          docker push $ECR_REPO:latest
+          echo "TAG=$TAG" >> $GITHUB_ENV
+
+      - name: Deploy via SSM
+        run: |
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids $INSTANCE_ID \
+            --document-name "AWS-RunShellScript" \
+            --parameters "commands=[\"aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin 865526620221.dkr.ecr.us-east-1.amazonaws.com\",\"docker pull $ECR_REPO:$TAG\",\"docker rm -f myapp || true\",\"docker run -d --restart unless-stopped -p 80:8080 --name myapp $ECR_REPO:$TAG\"]" \
+            --query "Command.CommandId" --output text)
+          echo "Command: $CMD_ID"
+          sleep 30
+          aws ssm get-command-invocation \
+            --command-id $CMD_ID \
+            --instance-id $INSTANCE_ID \
+            --query "{Status:Status,Output:StandardOutputContent,Error:StandardErrorContent}"
