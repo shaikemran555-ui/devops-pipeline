@@ -1,0 +1,9 @@
+{
+  "commands": [
+    "aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 865526620221.dkr.ecr.us-east-1.amazonaws.com",
+    "docker pull 865526620221.dkr.ecr.us-east-1.amazonaws.com/devops-pipeline-app:v1",
+    "docker rm -f myapp || true",
+    "docker run -d --restart unless-stopped -p 80:8080 --name myapp 865526620221.dkr.ecr.us-east-1.amazonaws.com/devops-pipeline-app:v1"
+  ]
+}
+
